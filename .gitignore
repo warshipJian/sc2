@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+runs/
+*.log
+*.SC2Replay
+p.before-*.py
