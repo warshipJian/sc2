@@ -13,12 +13,13 @@ from sc2bot.protoss.combat import Combat
 from sc2bot.protoss.macro import Macro
 from sc2bot.protoss.placement import Placement
 from sc2bot.protoss.protoss_normal import NormalStrategy
+from sc2bot.protoss.protoss_ladder import LadderStrategy
 from sc2bot.protoss.protoss_stalker import StalkerStrategy
 from sc2bot.apm_stats import CommandAPM
 from sc2.action import combine_actions
 
 
-class ProtossBot(StalkerStrategy, NormalStrategy, Macro, Placement, Combat, BotAI):
+class ProtossBot(StalkerStrategy, LadderStrategy, NormalStrategy, Macro, Placement, Combat, BotAI):
     def __init__(self, mode="normal", telemetry=None):
         super().__init__()
         self.mode = mode
@@ -95,7 +96,7 @@ class ProtossBot(StalkerStrategy, NormalStrategy, Macro, Placement, Combat, BotA
             await self.build_pylons()
             # Unlock production before spending the last minerals on probes.
             await self.build_tech()
-            if self.stalker_mode:
+            if self.stalker_mode or self.mode == "ladder":
                 await self.build_stalker_opening_battery()
             if self.defense_priority:
                 await self.produce_army()
@@ -111,8 +112,9 @@ class ProtossBot(StalkerStrategy, NormalStrategy, Macro, Placement, Combat, BotA
                 self.build_probes()
                 if not self.stalker_mode:
                     await self.advanced_tech()
-                await self.manage_ground_upgrades()
-                await self.manage_robotics_capacity()
+                if not self.ladder_pvt_opening():
+                    await self.manage_ground_upgrades()
+                    await self.manage_robotics_capacity()
                 await self.produce_robotics()
                 await self.produce_army()
                 await self.add_production()
@@ -130,6 +132,8 @@ class ProtossBot(StalkerStrategy, NormalStrategy, Macro, Placement, Combat, BotA
             else:
                 self.control_army()
             self.control_observers()
+            if self.ladder_pvt:
+                self.control_ladder_prism()
         self.record_apm()
         if self.telemetry is not None:
             self.telemetry.observe(self)

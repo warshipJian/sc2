@@ -92,7 +92,10 @@ class Macro:
         if self.stalker_mode:
             await self.stalker_advanced_tech()
             return
-        await self.normal_advanced_tech()
+        if self.mode == "ladder":
+            await self.ladder_advanced_tech()
+        else:
+            await self.normal_advanced_tech()
 
     def ground_upgrade_levels(self):
         done = getattr(self.state, "upgrades", set())
@@ -168,6 +171,9 @@ class Macro:
 
     def robotics_choice(self, planned=None):
         planned = planned or {}
+        if self.ladder_pvt and self.townhalls.amount < 3:
+            return (None if self.units(UnitTypeId.WARPPRISM) or self.already_pending(UnitTypeId.WARPPRISM)
+                    or planned.get(UnitTypeId.WARPPRISM) else UnitTypeId.WARPPRISM)
         observer_target = 2 if self.townhalls.ready.amount >= 3 else 1
         if self.units(UnitTypeId.OBSERVER).amount + self.already_pending(UnitTypeId.OBSERVER) + planned.get(UnitTypeId.OBSERVER, 0) < observer_target:
             return UnitTypeId.OBSERVER
@@ -212,6 +218,25 @@ class Macro:
     def reserved_minerals(self):
         if self.defense_priority:
             return 0
+        if self.mode == "ladder":
+            if self.townhalls.amount == 1 and not self.pending_count(UnitTypeId.NEXUS):
+                if self.ladder_pvt:
+                    return 400 if self.ladder_can_expand() else 0
+                if self.ladder_can_expand():
+                    return 400
+                return 150 if self.structures(UnitTypeId.CYBERNETICSCORE) and self.gate_count_with_pending() < 2 else 0
+            if self.ladder_pvt and self.townhalls.amount < 3 and not self.structures(UnitTypeId.TWILIGHTCOUNCIL):
+                return 150
+            if (self.ladder_pvt and self.townhalls.amount < 3
+                    and self.units(UnitTypeId.STALKER).amount >= 4
+                    and self.structures(UnitTypeId.TWILIGHTCOUNCIL).ready
+                    and UpgradeId.BLINKTECH not in self.state.upgrades
+                    and not self.already_pending_upgrade(UpgradeId.BLINKTECH)):
+                return self.calculate_cost(UpgradeId.BLINKTECH).minerals
+            if not self.structures(UnitTypeId.ROBOTICSFACILITY) and not self.pending_count(UnitTypeId.ROBOTICSFACILITY):
+                return 150
+            if self.ladder_pvt_opening():
+                return 0
         if self.stalker_mode:
             return self.stalker_reserved_minerals() if self.structures(UnitTypeId.CYBERNETICSCORE).ready else 0
         return self.normal_reserved_minerals()
@@ -248,8 +273,12 @@ class Macro:
         if not gates:
             await self.build_safely(UnitTypeId.GATEWAY)
             return
+        if self.ladder_pvt and self.townhalls.amount < 2 and not self.defense_priority:
+            return
         if gates.ready and not self.structures(UnitTypeId.CYBERNETICSCORE):
             await self.build_safely(UnitTypeId.CYBERNETICSCORE)
+        if self.mode == "ladder" and self.structures(UnitTypeId.CYBERNETICSCORE) and self.gate_count_with_pending() < 2:
+            await self.build_safely(UnitTypeId.GATEWAY)
         if self.stalker_mode:
             if self.structures(UnitTypeId.CYBERNETICSCORE) and self.gate_count_with_pending() < 2:
                 await self.build_safely(UnitTypeId.GATEWAY)
@@ -268,6 +297,8 @@ class Macro:
         return max(gates.amount, gates.ready.amount + self.pending_count(UnitTypeId.GATEWAY))
 
     async def add_production(self):
+        if self.mode == "ladder" and self.townhalls.amount < 2:
+            return
         if self.stalker_mode and self.townhalls.amount < 2:
             return  # build_tech owns the two opening gateways
         if self.minerals - 150 < self.reserved_minerals():
@@ -308,6 +339,17 @@ class Macro:
                     return
 
     def choose_gateway_unit(self, planned=None):
+        if self.ladder_pvt and self.townhalls.amount < 3 and self.structures(UnitTypeId.CYBERNETICSCORE).ready:
+            planned = planned or {}
+            if not self.units(UnitTypeId.ADEPT) and not self.already_pending(UnitTypeId.ADEPT) and not planned.get(UnitTypeId.ADEPT) and not self.units(UnitTypeId.STALKER):
+                return UnitTypeId.ADEPT if self.can_afford(UnitTypeId.ADEPT) else None
+            if (not self.defense_priority and self.units(UnitTypeId.STALKER).amount >= 4
+                    and self.structures(UnitTypeId.TWILIGHTCOUNCIL)
+                    and UpgradeId.BLINKTECH not in self.state.upgrades
+                    and not self.already_pending_upgrade(UpgradeId.BLINKTECH)
+                    and self.vespene < self.calculate_cost(UpgradeId.BLINKTECH).vespene + self.calculate_cost(UnitTypeId.STALKER).vespene):
+                return None
+            return UnitTypeId.STALKER if self.can_afford(UnitTypeId.STALKER) else None
         if self.stalker_mode:
             return self.stalker_gateway_unit()
         return self.normal_gateway_unit(planned)
@@ -341,6 +383,7 @@ class Macro:
                 break
             ability = {
                 UnitTypeId.STALKER: AbilityId.WARPGATETRAIN_STALKER,
+                UnitTypeId.ADEPT: AbilityId.TRAINWARP_ADEPT,
                 UnitTypeId.ZEALOT: AbilityId.WARPGATETRAIN_ZEALOT,
                 UnitTypeId.HIGHTEMPLAR: AbilityId.WARPGATETRAIN_HIGHTEMPLAR,
             }[unit_type]
@@ -366,13 +409,15 @@ class Macro:
                     break
 
     async def expand(self):
+        if self.mode == "ladder" and self.townhalls.amount < 2 and not self.ladder_can_expand():
+            return
         if self.stalker_mode and self.townhalls.amount < 2:
             if self.units(UnitTypeId.STALKER).amount < 4 or self.powered_gate_count() < 2:
                 return
         if self.pending_count(UnitTypeId.NEXUS):
             return
         desired = 1
-        if self.workers.amount >= 20:
+        if self.workers.amount >= 20 or (self.ladder_pvt and self.ladder_can_expand()):
             desired = 2
         if self.workers.amount >= 36 or (self.time > 240 and self.minerals >= 700):
             desired = 3
@@ -380,6 +425,8 @@ class Macro:
             desired = 4
         if self.time > 600 and self.minerals >= 1200:
             desired = 5
+        if self.ladder_pvt and self.townhalls.amount == 2 and not self.ladder_ready_to_push(24, False):
+            desired = min(desired, 2)
         threats = self.enemy_units.filter(lambda u: not u.is_structure and (u.can_attack_ground or u.can_attack_air))
         if any(threats.closer_than(20, base) for base in self.townhalls):
             return

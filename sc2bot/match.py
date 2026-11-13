@@ -18,7 +18,7 @@ def main():
     parser.add_argument("--fast", action="store_true", help="Run without real-time pacing")
     parser.add_argument("--minutes", type=int, default=0, help="Optional game-time limit")
     parser.add_argument("--human", action="store_true", help="Play against the bot in a second local SC2 window")
-    parser.add_argument("--mode", choices=("normal", "stalker"), default="normal", help="Bot strategy: normal or blink stalker harassment")
+    parser.add_argument("--mode", choices=("normal", "stalker", "ladder"), default="normal", help="Bot strategy: mixed army, blink harassment, or two-base ladder push")
     parser.add_argument("--race", "-r", type=str.upper, choices=("P", "T", "Z", "R"),
                         default="R", help="Your race with --human, otherwise computer race: P/T/Z/R (default R)")
     args = parser.parse_args()

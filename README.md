@@ -15,6 +15,7 @@ python p.py --human -r P
 
 - `--mode normal`（默认）：混兵、科技和集结推进。
 - `--mode stalker`：双 BG 开局、闪烁追猎和观察者。
+- `--mode ladder`：PvT 参考 Washout LE 录像，单 BG 开二矿，首个使徒后转追猎，接暮光闪烁、四门和运输机；其他对局沿用双 BG 开矿。可用 `python p.py --mode ladder -r T --fast` 测试。
 - `-r P/T/Z/R`：默认随机；加 `--human` 时指定自己的种族，否则指定电脑种族。电脑难度为 VeryHard。
 - `--fast`：非实时测试；不能与 `--human` 一起用。
 - `--minutes N`：限制游戏时间，适合快速验证启动和开局。

@@ -7,6 +7,7 @@ from sc2.ids.upgrade_id import UpgradeId
 from sc2.position import Point2
 
 from sc2bot.protoss.army_plan import storm_target
+from sc2bot.protoss.protoss_stalker import aligned_void_rays, safer_stalker_step
 
 
 class Combat:
@@ -69,7 +70,7 @@ class Combat:
 
     def main_army(self):
         return self.units.of_type({UnitTypeId.STALKER, UnitTypeId.ZEALOT,
-            UnitTypeId.IMMORTAL, UnitTypeId.COLOSSUS})
+            UnitTypeId.IMMORTAL, UnitTypeId.COLOSSUS, UnitTypeId.ADEPT})
 
     def largest_group(self, units):
         seed = max(units, key=lambda u: units.closer_than(11, u).amount)
@@ -99,12 +100,23 @@ class Combat:
                         logger.info("Storm at {}", pos)
         if UpgradeId.BLINKTECH in self.state.upgrades:
             threshold = 0.4 if self.stalker_mode else 0.25
-            for stalker in self.units(UnitTypeId.STALKER).filter(lambda u: u.shield_percentage < threshold):
+            aligned = aligned_void_rays(self.enemy_units)
+            for stalker in self.units(UnitTypeId.STALKER):
+                charged = aligned.filter(lambda ray: ray.distance_to(stalker) <= ray.ground_range + ray.radius + stalker.radius + 1)
+                if stalker.shield_percentage >= threshold and not charged:
+                    continue
                 enemies = self.enemy_units.filter(lambda u: u.can_attack_ground).closer_than(8, stalker)
-                if not enemies:
+                if not enemies and not charged:
                     continue
                 base = self.townhalls.closest_to(stalker)
                 pos = stalker.position.towards(base.position, min(7, stalker.distance_to(base)))
+                if charged:
+                    nearby = enemies | charged | self.enemy_structures.filter(lambda u: u.can_attack_ground).closer_than(12, stalker)
+                    danger = [(u.position, u.ground_range + u.radius + stalker.radius + 1.5) for u in nearby]
+                    pos = safer_stalker_step(stalker.position, base.position, danger,
+                        lambda point: self.in_map_bounds(point) and self.in_pathing_grid(point), distance=7)
+                    if pos is None:
+                        continue
                 if self.in_map_bounds(pos) and self.in_pathing_grid(pos) and await self.can_cast(stalker, AbilityId.EFFECT_BLINK_STALKER, pos):
                     stalker(AbilityId.EFFECT_BLINK_STALKER, pos)
 

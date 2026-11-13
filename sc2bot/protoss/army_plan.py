@@ -16,7 +16,7 @@ class ArmyPlan:
     reason: str = "gather army"
 
     def update(self, now, army_supply, power, enemy_power, cohesion,
-               shields, advanced, base_threat=False):
+               shields, advanced, base_threat=False, attack_allowed=True, minimum_supply=None):
         if enemy_power:
             self.last_enemy_time = now
         old = self.mode
@@ -49,8 +49,10 @@ class ArmyPlan:
             self.mode = "RALLY"
             self.reason = "gather army"
             ready = army_supply >= 44 or (army_supply >= 34 and advanced)
+            if minimum_supply is not None:
+                ready = army_supply >= minimum_supply
             rebuilt = now >= self.rematch_until or power >= self.rematch_power
-            if ready and rebuilt and cohesion >= 0.75 and shields >= 0.65 and enemy_power <= power * 0.7:
+            if attack_allowed and ready and rebuilt and cohesion >= 0.75 and shields >= 0.65 and enemy_power <= power * 0.7:
                 self.mode = "ATTACK"
                 self.reason = "army assembled"
                 self.peak_power = power

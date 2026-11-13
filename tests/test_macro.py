@@ -483,6 +483,23 @@ class MacroTests(unittest.IsolatedAsyncioTestCase):
         await self.bot.build_pylons()
         self.bot.build_safely.assert_awaited_once_with(UnitTypeId.PYLON, max_pending=3)
 
+    async def test_ladder_pvt_expands_with_nineteen_probes(self):
+        from sc2.data import Race
+
+        self.bot.mode = "ladder"
+        self.bot.enemy_race = Race.Terran
+        self.bot.townhalls = Units([self.unit(UnitTypeId.NEXUS)], self.bot)
+        self.bot.structures = Units([self.unit(UnitTypeId.GATEWAY)], self.bot)
+        self.bot.gas_buildings = Units([self.unit(UnitTypeId.ASSIMILATOR)], self.bot)
+        self.bot.workers = Units([self.unit(UnitTypeId.PROBE, tag=i) for i in range(19)], self.bot)
+        location = Point2((60, 60))
+        self.bot.get_next_expansion = AsyncMock(return_value=location)
+        self.bot.find_placement = AsyncMock(return_value=location)
+        worker = self.unit(UnitTypeId.PROBE, tag=99, build=Mock(return_value=True))
+        self.bot.pick_builder = lambda _: worker
+        await self.bot.expand()
+        worker.build.assert_called_once_with(UnitTypeId.NEXUS, location, can_afford_check=True)
+
     async def test_large_bank_opens_third_without_eight_stalkers(self):
         self.bot.townhalls = Units([self.unit(UnitTypeId.NEXUS, tag=i) for i in (1, 2)], self.bot)
         self.bot.workers = Units([self.unit(UnitTypeId.PROBE, tag=i) for i in range(24)], self.bot)

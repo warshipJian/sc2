@@ -151,7 +151,9 @@ class NormalStrategy:
             cohesion = army.closer_than(13, retreat_home).amount / len(army)
         advanced = bool(army.of_type({UnitTypeId.IMMORTAL, UnitTypeId.COLOSSUS}))
         changed = self.army_plan.update(self.time, supply, power, enemy_power,
-            cohesion, shields, advanced, full_defense)
+            cohesion, shields, advanced, full_defense,
+            attack_allowed=self.mode != "ladder" or self.ladder_ready_to_push(supply, advanced),
+            minimum_supply=24 if self.ladder_pvt else None)
         self.pushing = self.army_plan.mode == "ATTACK"
         if changed:
             logger.info("Army mode={} reason={} supply={} cohesion={:.0%} strength={:.1f}/{:.1f}",

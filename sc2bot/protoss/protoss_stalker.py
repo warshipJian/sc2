@@ -2,13 +2,35 @@
 
 from loguru import logger
 from sc2.ids.unit_typeid import UnitTypeId
+from sc2.ids.buff_id import BuffId
 from sc2.ids.upgrade_id import UpgradeId
+from sc2.position import Point2
+
+
+def aligned_void_rays(enemies):
+    return enemies.of_type({UnitTypeId.VOIDRAY}).filter(
+        lambda ray: ray.has_buff(BuffId.VOIDRAYSWARMDAMAGEBOOST))
+
+
+def safer_stalker_step(position, home, threats, walkable, distance=3):
+    """Pick a nearby step that reduces exposure, or keep the current position."""
+    def risk(point):
+        return sum(max(0, reach - point.distance_to(origin)) for origin, reach in threats)
+
+    current = risk(position)
+    candidates = [position.towards(home, distance)]
+    for dx, dy in ((3, 0), (-3, 0), (0, 3), (0, -3), (2, 2), (2, -2), (-2, 2), (-2, -2)):
+        candidates.append(Point2((position.x + dx * distance / 3, position.y + dy * distance / 3)))
+    safe = [point for point in candidates if walkable(point) and risk(point) < current - 0.1]
+    return min(safe, key=lambda point: (risk(point), point.distance_to(home)), default=None)
 
 
 class StalkerStrategy:
     def update_stalker_counterattack(self):
         if self.defense_priority:
             self.stalker_wave_seen = True
+            if self.harass_target is not None:
+                self.harass_avoid[self.harass_target] = self.time + 90
             self.harass_target = None
         elif self.stalker_wave_seen and self.stalker_counter_until is None:
             self.stalker_counter_until = self.time + 45
@@ -81,15 +103,18 @@ class StalkerStrategy:
         core = self.largest_group(army)
         center = core.center
         threats = (self.enemy_units | self.enemy_structures).filter(lambda u: u.can_attack_ground)
+        aligned = aligned_void_rays(self.enemy_units)
         local = threats.closer_than(14, center)
         healthy = core.filter(lambda u: u.shield_percentage >= 0.6)
         power = sum(self.combat_power(u) for u in core)
         enemy_power = sum(self.combat_power(u) for u in local)
         if self.harass_target is not None and (core.amount < 4 or enemy_power > power * 1.15
                 or healthy.amount * 2 < core.amount):
-            self.harass_avoid[self.harass_target] = self.time + 45
+            self.harass_avoid[self.harass_target] = self.time + 90
             self.harass_target = None
-            self.harass_retry = self.time + 10
+            self.harass_retry = self.time + 18
+            logger.info("Harassment disengaged: healthy={}/{} local strength={:.1f}/{:.1f}",
+                        healthy.amount, core.amount, power, enemy_power)
         if self.harass_target is not None and center.distance_to(self.harass_target) < 6:
             if not (self.enemy_units | self.enemy_structures).closer_than(9, self.harass_target):
                 self.harass_avoid[self.harass_target] = self.time + 45
@@ -115,20 +140,31 @@ class StalkerStrategy:
                 continue
             targets = (self.enemy_units | self.enemy_structures).closer_than(10, stalker).filter(stalker.target_in_range)
             nearby = threats.closer_than(9, stalker)
+            charged = aligned.filter(lambda ray: ray.distance_to(stalker) <= ray.ground_range + ray.radius + stalker.radius + 1)
+            if charged:
+                danger = [(enemy.position, enemy.ground_range + enemy.radius + stalker.radius + 1.5)
+                          for enemy in nearby]
+                step = safer_stalker_step(stalker.position, home, danger,
+                    lambda point: self.in_map_bounds(point) and self.in_pathing_grid(point))
+                if step is not None:
+                    stalker.move(step)
+                    continue
             retreat = self.harass_target is None or stalker.shield_percentage < 0.4
+            if nearby and (retreat or stalker.weapon_cooldown > 0):
+                # Range plus a buffer for unit radii and moving melee threats.
+                danger = [(enemy.position, enemy.ground_range + enemy.radius + stalker.radius + 1.5)
+                          for enemy in nearby]
+                step = safer_stalker_step(stalker.position, home, danger,
+                    lambda point: self.in_map_bounds(point) and self.in_pathing_grid(point))
+                if step is not None and (stalker.shield_percentage < 0.4 or stalker.weapon_cooldown > 0):
+                    stalker.move(step)
+                    continue
             if targets and stalker.weapon_cooldown == 0:
                 # Pick off exposed workers when safe; otherwise focus one combat target.
                 workers = targets.of_type({UnitTypeId.PROBE, UnitTypeId.SCV, UnitTypeId.DRONE})
                 combat = targets.filter(lambda u: u.can_attack_ground and u.type_id not in {UnitTypeId.PROBE, UnitTypeId.SCV, UnitTypeId.DRONE})
                 pool = (combat if nearby else workers) or targets
                 stalker.attack(min(pool, key=lambda u: (u.health + u.shield, u.tag)))
-            elif nearby and stalker.weapon_cooldown > 0:
-                nearest = nearby.closest_to(stalker)
-                step = stalker.position.towards(nearest.position, -3)
-                if self.in_map_bounds(step) and self.in_pathing_grid(step):
-                    stalker.move(step)
-                elif retreat:
-                    stalker.move(home)
             elif retreat:
                 if stalker.distance_to(home) > 4:
                     stalker.move(home)
